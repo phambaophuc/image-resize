@@ -1,0 +1,64 @@
+package routes
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/phambaophuc/image-resizing/internal/handlers"
+	"github.com/phambaophuc/image-resizing/internal/middleware"
+	"go.uber.org/zap"
+)
+
+type Router struct {
+	imageHandler *handlers.ImageHandler
+	logger       *zap.Logger
+}
+
+func NewRouter(
+	imageHandler *handlers.ImageHandler,
+	logger *zap.Logger,
+) *Router {
+	return &Router{
+		imageHandler: imageHandler,
+		logger:       logger,
+	}
+}
+
+func (r *Router) SetupRoutes() *gin.Engine {
+	// Setup Gin router
+	if gin.Mode() == gin.ReleaseMode {
+		gin.SetMode(gin.ReleaseMode)
+	}
+
+	router := gin.New()
+
+	// Global middleware
+	router.Use(middleware.Logger(r.logger))
+	router.Use(middleware.ErrorHandler(r.logger))
+	router.Use(middleware.CORS())
+	router.Use(middleware.SecurityHeaders())
+
+	// API version 1
+	v1 := router.Group("/api/v1")
+	{
+		// Health and monitoring
+		v1.GET("/health", r.imageHandler.HealthCheck)
+		v1.GET("/stats", r.imageHandler.GetStats)
+
+		// Image processing endpoints
+		images := v1.Group("/images")
+		{
+			// Single image resize
+			images.POST("/resize", r.imageHandler.ResizeImage)
+		}
+	}
+
+	router.GET("/", func(ctx *gin.Context) {
+		ctx.JSON(http.StatusOK, gin.H{
+			"status":  "OK",
+			"message": "Image resizing is running",
+		})
+	})
+
+	return router
+}
