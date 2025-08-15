@@ -3,7 +3,9 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -131,12 +133,16 @@ func (h *ImageHandler) ResizeImage(c *gin.Context) {
 	// Cache the result
 	h.storage.SetCache(c.Request.Context(), cacheKey, buffer.Bytes())
 
+	// Rename file
+	ext := "." + format
+	newFilename := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename)) + ext
+
 	// Upload to Supabase if configured
 	var imageURL string
 	if h.storage != nil {
-		url, err := h.storage.Upload(c.Request.Context(), buffer, header.Filename, "image/"+format)
+		url, err := h.storage.Upload(c.Request.Context(), buffer, newFilename, "image/"+format)
 		if err != nil {
-			h.logger.Warn("Failed to upload to S3", zap.Error(err))
+			h.logger.Warn("Failed to upload to Storage", zap.Error(err))
 		} else {
 			imageURL = url
 		}
