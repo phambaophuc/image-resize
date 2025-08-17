@@ -1,7 +1,11 @@
 package handlers
 
 import (
+	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
+	"mime/multipart"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -42,18 +46,7 @@ func NewImageHandler(
 
 // ResizeImage handles single image resize
 func (h *ImageHandler) ResizeImage(c *gin.Context) {
-	// Parse form data
-	err := c.Request.ParseMultipartForm(h.config.Storage.MaxFileSize)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, models.APIResponse{
-			Success: false,
-			Error:   "Failed to parse form data",
-		})
-		return
-	}
-
-	// Get uploaded file
-	file, header, err := c.Request.FormFile("image")
+	file, header, err := h.getUploadedFile(c)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
@@ -63,114 +56,58 @@ func (h *ImageHandler) ResizeImage(c *gin.Context) {
 	}
 	defer file.Close()
 
-	// Validate file
-	if err := h.processor.ValidateImage(file, h.config.Storage.MaxFileSize); err != nil {
+	width, _ := strconv.Atoi(c.PostForm("width"))
+	height, _ := strconv.Atoi(c.PostForm("height"))
+	quality, _ := strconv.Atoi(c.PostForm("quality"))
+	format := c.PostForm("format")
+
+	if width <= 0 || height <= 0 {
 		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   fmt.Sprintf("Invalid image: %v", err),
+			Error:   "Width and height must be positive integers",
 		})
 		return
 	}
 
-	// Parse resize parameters
-	var resizeReq models.ResizeRequest
-	if err := c.ShouldBindJSON(&resizeReq); err != nil {
-		// Try to get from form parameters
-		width, _ := strconv.Atoi(c.PostForm("width"))
-		height, _ := strconv.Atoi(c.PostForm("height"))
-		quality, _ := strconv.Atoi(c.PostForm("quality"))
-		format := c.PostForm("format")
+	if quality == 0 {
+		quality = 85
+	}
 
-		if width <= 0 || height <= 0 {
-			c.JSON(http.StatusBadRequest, models.APIResponse{
-				Success: false,
-				Error:   "Width and height must be positive integers",
-			})
-			return
-		}
-
-		resizeReq = models.ResizeRequest{
+	req := &models.AdvancedProcessingRequest{
+		Resize: &models.ResizeRequest{
 			Width:   width,
 			Height:  height,
 			Quality: quality,
 			Format:  format,
-		}
+		},
 	}
 
-	// Set default quality if not provided
-	if resizeReq.Quality == 0 {
-		resizeReq.Quality = 85
-	}
+	h.processAndRespond(c, file, header, req)
+}
 
-	// Create processing request
-	processReq := models.AdvancedProcessingRequest{
-		Resize: &resizeReq,
-	}
-
-	// Check cache first
-	cacheKey := h.storage.GenerateCacheKey(header.Filename, &processReq)
-	cachedData, err := h.storage.GetFromCache(c.Request.Context(), cacheKey)
-
-	if err == nil && cachedData != nil {
-		h.logger.Info("Cache hit", zap.String("filename", header.Filename))
-		c.Header("Content-Type", "image/"+resizeReq.Format)
-		c.Header("Cache-Control", "public, max-age=3600")
-		c.Data(http.StatusOK, "image/"+resizeReq.Format, cachedData)
-		return
-	}
-
-	// Process image
-	buffer, format, err := h.processor.ProcessImage(file, &processReq)
+// AdvancedProcess handles advanced image processing
+func (h *ImageHandler) AdvancedProcess(c *gin.Context) {
+	file, header, err := h.getUploadedFile(c)
 	if err != nil {
-		h.logger.Error("Image processing failed", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, models.APIResponse{
+		c.JSON(http.StatusBadRequest, models.APIResponse{
 			Success: false,
-			Error:   "Failed to process image",
+			Error:   "No image file provided",
+		})
+		return
+	}
+	defer file.Close()
+
+	jsonStr := c.PostForm("payload")
+	var req models.AdvancedProcessingRequest
+	if err := json.Unmarshal([]byte(jsonStr), &req); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Invalid processing request",
 		})
 		return
 	}
 
-	// Cache the result
-	h.storage.SetCache(c.Request.Context(), cacheKey, buffer.Bytes())
-
-	// Rename file
-	ext := "." + format
-	newFilename := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename)) + ext
-
-	// Upload to Supabase if configured
-	var imageURL string
-	if h.storage != nil {
-		url, err := h.storage.Upload(c.Request.Context(), buffer, newFilename, "image/"+format)
-		if err != nil {
-			h.logger.Warn("Failed to upload to Storage", zap.Error(err))
-		} else {
-			imageURL = url
-		}
-	}
-
-	// Return processed image or URL
-	if c.Query("return_url") == "true" && imageURL != "" {
-		c.JSON(http.StatusOK, models.APIResponse{
-			Success: true,
-			Data: models.ProcessedImage{
-				ID:          uuid.New().String(),
-				OriginalURL: header.Filename,
-				URL:         imageURL,
-				FileSize:    int64(buffer.Len()),
-				ProcessedAt: time.Now(),
-				Size: models.ResizeSize{
-					Width:   resizeReq.Width,
-					Height:  resizeReq.Height,
-					Quality: resizeReq.Quality,
-					Format:  format,
-				},
-			},
-		})
-	} else {
-		c.Header("Content-Type", "image/"+format)
-		c.Header("Cache-Control", "public, max-age=3600")
-		c.Data(http.StatusOK, "image/"+format, buffer.Bytes())
-	}
+	h.processAndRespond(c, file, header, &req)
 }
 
 func (h *ImageHandler) HealthCheck(c *gin.Context) {
@@ -231,4 +168,103 @@ func (h *ImageHandler) GetStats(c *gin.Context) {
 		Success: true,
 		Data:    stats,
 	})
+}
+
+func (h *ImageHandler) uploadToStorage(
+	ctx context.Context,
+	buffer *bytes.Buffer,
+	header *multipart.FileHeader,
+	format string,
+) string {
+	// Rename file
+	ext := "." + format
+	newFilename := strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename)) + ext
+
+	// Upload to Supabase if configured
+	if h.storage != nil {
+		url, err := h.storage.Upload(ctx, buffer, newFilename, "image/"+format)
+		if err != nil {
+			h.logger.Warn("Failed to upload to Storage", zap.Error(err))
+			return ""
+		}
+		return url
+	}
+
+	return ""
+}
+
+func (h *ImageHandler) getUploadedFile(c *gin.Context) (multipart.File, *multipart.FileHeader, error) {
+	file, header, err := c.Request.FormFile("image")
+	if err != nil {
+		return nil, nil, err
+	}
+	return file, header, nil
+}
+
+func (h *ImageHandler) processAndRespond(
+	c *gin.Context,
+	file multipart.File,
+	header *multipart.FileHeader,
+	req *models.AdvancedProcessingRequest,
+) {
+	// Validate
+	if err := h.processor.ValidateImage(file, h.config.Storage.MaxFileSize); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   fmt.Sprintf("Invalid image: %v", err),
+		})
+		return
+	}
+
+	// Cache key
+	cacheKey := h.storage.GenerateCacheKey(header.Filename, req)
+	cachedData, err := h.storage.GetFromCache(c.Request.Context(), cacheKey)
+	if err == nil && cachedData != nil {
+		h.logger.Info("Cache hit", zap.String("filename", header.Filename))
+		c.Header("Content-Type", "image/"+req.Resize.Format)
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.Data(http.StatusOK, "image/"+req.Resize.Format, cachedData)
+		return
+	}
+
+	// Process
+	buffer, format, err := h.processor.ProcessImage(file, req)
+	if err != nil {
+		h.logger.Error("Processing failed", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   "Failed to process image",
+		})
+		return
+	}
+
+	// Cache result
+	h.storage.SetCache(c.Request.Context(), cacheKey, buffer.Bytes())
+
+	// Upload
+	imageURL := h.uploadToStorage(c.Request.Context(), buffer, header, format)
+
+	// Return processed image
+	if c.Query("return_url") == "true" && imageURL != "" {
+		c.JSON(http.StatusOK, models.APIResponse{
+			Success: true,
+			Data: models.ProcessedImage{
+				ID:          uuid.New().String(),
+				OriginalURL: header.Filename,
+				URL:         imageURL,
+				FileSize:    int64(buffer.Len()),
+				ProcessedAt: time.Now(),
+				Size: models.ResizeSize{
+					Width:   req.Resize.Width,
+					Height:  req.Resize.Height,
+					Quality: req.Resize.Quality,
+					Format:  format,
+				},
+			},
+		})
+	} else {
+		c.Header("Content-Type", "image/"+format)
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.Data(http.StatusOK, "image/"+format, buffer.Bytes())
+	}
 }

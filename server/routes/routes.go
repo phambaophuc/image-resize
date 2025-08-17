@@ -50,6 +50,9 @@ func (r *Router) SetupRoutes() *gin.Engine {
 		{
 			// Single image resize
 			images.POST("/resize", r.imageHandler.ResizeImage)
+
+			// Advanced processing
+			images.POST("/process", r.imageHandler.AdvancedProcess)
 		}
 	}
 

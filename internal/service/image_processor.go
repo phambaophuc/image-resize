@@ -156,20 +156,14 @@ func (p *ImageProcessor) addTextWatermark(img *image.RGBA, text, position string
 		x, y = bounds.Dx()/2-50, bounds.Dy()/2
 	}
 
-	// Create text color with opacity
-	textColor := color.RGBA{255, 255, 255, uint8(255 * opacity)}
-
 	// Add text (simplified - in production you'd use a better font rendering)
-	point := fixed.Point26_6{
-		X: fixed.I(x),
-		Y: fixed.I(y),
-	}
+	textColor := image.NewUniform(color.RGBA{200, 200, 200, uint8(255 * opacity)})
 
 	d := &font.Drawer{
 		Dst:  img,
-		Src:  image.NewUniform(textColor),
+		Src:  textColor,
 		Face: basicfont.Face7x13,
-		Dot:  point,
+		Dot:  fixed.Point26_6{X: fixed.I(x), Y: fixed.I(y)},
 	}
 	d.DrawString(text)
 }
