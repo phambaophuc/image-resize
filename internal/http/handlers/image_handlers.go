@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -14,24 +15,26 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/phambaophuc/image-resizing/internal/config"
-	"github.com/phambaophuc/image-resizing/internal/models"
-	"github.com/phambaophuc/image-resizing/internal/service"
+	"github.com/phambaophuc/image-resize/internal/config"
+	"github.com/phambaophuc/image-resize/internal/models"
+	"github.com/phambaophuc/image-resize/internal/services/processor"
+	"github.com/phambaophuc/image-resize/internal/services/queue"
+	"github.com/phambaophuc/image-resize/internal/services/storage"
 	"go.uber.org/zap"
 )
 
 type ImageHandler struct {
-	processor *service.ImageProcessor
-	storage   *service.StorageService
-	queue     *service.QueueService
+	processor *processor.ImageProcessor
+	storage   *storage.StorageService
+	queue     *queue.QueueService
 	logger    *zap.Logger
 	config    *config.Config
 }
 
 func NewImageHandler(
-	processor *service.ImageProcessor,
-	storage *service.StorageService,
-	queue *service.QueueService,
+	processor *processor.ImageProcessor,
+	storage *storage.StorageService,
+	queue *queue.QueueService,
 	logger *zap.Logger,
 	config *config.Config,
 ) *ImageHandler {
@@ -108,6 +111,146 @@ func (h *ImageHandler) AdvancedProcess(c *gin.Context) {
 	}
 
 	h.processAndRespond(c, file, header, &req)
+}
+
+func (h *ImageHandler) BatchResize(c *gin.Context) {
+	err := c.Request.ParseMultipartForm(h.config.Storage.MaxFileSize * 10)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Failed to parse form data",
+		})
+		return
+	}
+
+	// Get uploaded files
+	form := c.Request.MultipartForm
+	files := form.File["images"]
+	if len(files) == 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "No images provided",
+		})
+		return
+	}
+
+	// Parse batch request
+	var batchReq models.BatchResizeRequest
+
+	sizesJSON := c.PostForm("sizes")
+	if sizesJSON == "" {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Missing 'sizes' field in form data",
+		})
+		return
+	}
+
+	if err := json.Unmarshal([]byte(sizesJSON), &batchReq.Sizes); err != nil {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "Invalid sizes format: " + err.Error(),
+		})
+		return
+	}
+
+	if len(batchReq.Sizes) == 0 {
+		c.JSON(http.StatusBadRequest, models.APIResponse{
+			Success: false,
+			Error:   "At least one size configuration is required",
+		})
+		return
+	}
+
+	uploadFiles := make([]models.UploadFile, len(files))
+	for i, fileHeader := range files {
+		file, err := fileHeader.Open()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to open file %d", i+1),
+			})
+			return
+		}
+		defer file.Close()
+
+		// Read file data
+		fileData, err := io.ReadAll(file)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, models.APIResponse{
+				Success: false,
+				Error:   fmt.Sprintf("Failed to read file %d", i+1),
+			})
+			return
+		}
+
+		tempFilename := fmt.Sprintf("temp_%s_%d_%s",
+			uuid.New().String(), i, fileHeader.Filename)
+
+		uploadFiles[i] = models.UploadFile{
+			Data:        fileData,
+			Filename:    tempFilename,
+			ContentType: "",
+		}
+	}
+
+	fileURLs, err := h.storage.UploadMultiple(c.Request.Context(), uploadFiles)
+	if err != nil {
+		h.logger.Error("Failed to upload files", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, models.APIResponse{
+			Success: false,
+			Error:   "Failed to upload one or more files: " + err.Error(),
+		})
+		return
+	}
+
+	jobs := make([]*models.ProcessingJob, 0, len(files)*len(batchReq.Sizes))
+	mainJobID := uuid.New().String()
+
+	for i := range files {
+		for j, size := range batchReq.Sizes {
+			// Create individual job for each file-size combination
+			jobID := fmt.Sprintf("%s_%d_%d", mainJobID, i, j)
+
+			job := &models.ProcessingJob{
+				ID:       jobID,
+				ImageURL: fileURLs[i],
+				Request: models.AdvancedProcessingRequest{
+					Resize: &models.ResizeRequest{
+						Width:   size.Width,
+						Height:  size.Height,
+						Quality: size.Quality,
+						Format:  size.Format,
+					},
+				},
+				Status:    models.StatusPending,
+				CreatedAt: time.Now(),
+			}
+
+			jobs = append(jobs, job)
+
+			// Queue individual job
+			if err := h.queue.PublishJob(c.Request.Context(), job); err != nil {
+				h.logger.Error("Failed to queue job",
+					zap.Error(err), zap.String("job_id", jobID))
+				c.JSON(http.StatusInternalServerError, models.APIResponse{
+					Success: false,
+					Error:   "Failed to queue processing job",
+				})
+				return
+			}
+		}
+	}
+
+	c.JSON(http.StatusAccepted, models.APIResponse{
+		Success: true,
+		Data: models.BatchResponse{
+			JobID:  mainJobID,
+			Status: models.StatusPending,
+		},
+		Message: fmt.Sprintf("Batch processing queued: %d files × %d sizes = %d jobs",
+			len(files), len(batchReq.Sizes), len(jobs)),
+	})
 }
 
 func (h *ImageHandler) HealthCheck(c *gin.Context) {

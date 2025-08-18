@@ -4,8 +4,8 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/phambaophuc/image-resizing/internal/handlers"
-	"github.com/phambaophuc/image-resizing/internal/middleware"
+	"github.com/phambaophuc/image-resize/internal/http/handlers"
+	"github.com/phambaophuc/image-resize/internal/http/middleware"
 	"go.uber.org/zap"
 )
 
@@ -50,6 +50,9 @@ func (r *Router) SetupRoutes() *gin.Engine {
 		{
 			// Single image resize
 			images.POST("/resize", r.imageHandler.ResizeImage)
+
+			// Batch processing
+			images.POST("/batch/resize", r.imageHandler.BatchResize)
 
 			// Advanced processing
 			images.POST("/process", r.imageHandler.AdvancedProcess)

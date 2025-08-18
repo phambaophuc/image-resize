@@ -1,4 +1,4 @@
-module github.com/phambaophuc/image-resizing
+module github.com/phambaophuc/image-resize
 
 go 1.23.6
 
