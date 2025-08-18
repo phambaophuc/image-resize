@@ -7,6 +7,7 @@ A high-performance, production-ready Go API for image processing with resize, cr
 - **🔄 Image Resizing**: High-quality image resizing with multiple algorithms
 - **✂️ Cropping**: Precise image cropping with coordinate-based positioning
 - **💧 Watermarking**: Text and image watermarks with opacity control
+- **📦 Batch Processing: Concurrent processing of multiple images
 - **⚡ Caching**: Redis-based result caching for improved performance
 - **☁️ Cloud Storage**: Supabase integration for scalable storage
 - **🔄 Queue System**: RabbitMQ-based job queue for async processing
@@ -19,9 +20,9 @@ A high-performance, production-ready Go API for image processing with resize, cr
 ### Prerequisites
 
 - Go 1.21+
-- Redis (optional, for caching)
-- RabbitMQ (optional, for queue processing)
-- Supabase (optional, for cloud storage)
+- Redis (for caching)
+- RabbitMQ (for queue processing)
+- Supabase (for cloud storage)
 
 ### Installation
 
@@ -40,6 +41,26 @@ cp .env.example .env
 ```
 
 4. **Run the application**
+```bash
+go run server/main.go
+```
+
+The API will be available at `http://localhost:8080`
+
+### Docker Setup
+
+**Using Docker Compose (Recommended)**
+```bash
+docker compose up -d --build
+```
+
+This starts the API with Redis and RabbitMQ services.
+
+**Using Docker only**
+```bash
+docker build -t image-resize-api .
+docker run -p 8080:8080 image-resize-api
+```
 
 ## 📖 API Documentation
 
@@ -122,6 +143,7 @@ GET /stats
 ### Benchmarks
 
 - **Single image resize (1920x1080 → 800x600)**: ~50ms
+- **Batch processing (10 images)**: ~200ms with 5 workers
 - **Cache hit response**: ~5ms
 - **Memory usage**: ~20MB baseline + ~2MB per concurrent request
 
@@ -153,6 +175,7 @@ curl http://localhost:8080/api/v1/stats
 
 ### Docker Health Check
 The Docker container includes automatic health checks that monitor:
+- API responsiveness
 - Redis connectivity (if configured)
 - RabbitMQ connectivity (if configured)
 
