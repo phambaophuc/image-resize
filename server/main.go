@@ -6,16 +6,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
 	"github.com/phambaophuc/image-resize/internal/config"
 	"github.com/phambaophuc/image-resize/internal/http/handlers"
 	"github.com/phambaophuc/image-resize/internal/http/routes"
-	"github.com/phambaophuc/image-resize/internal/services/processor"
-	"github.com/phambaophuc/image-resize/internal/services/queue"
-	"github.com/phambaophuc/image-resize/internal/services/storage"
+	"github.com/phambaophuc/image-resize/internal/services"
 	"go.uber.org/zap"
 )
 
@@ -34,21 +31,15 @@ func main() {
 	}
 
 	// Initialize services
-	processor := processor.NewImageProcessor()
+	processor := services.NewImageProcessor()
 
-	storage, err := storage.NewStorageService(cfg)
+	storage, err := services.NewStorageService(cfg)
 	if err != nil {
 		logger.Fatal("Failed to initialize storage service", zap.Error(err))
 	}
 
-	queue, err := queue.NewQueueService(cfg.RabbitMQ.URL, processor, storage, logger)
-	if err != nil {
-		logger.Warn("Failed to initialize queue service", zap.Error(err))
-		// Continue without queue service for basic functionality
-	}
-
 	// Initialize handlers
-	imageHandler := handlers.NewImageHandler(processor, storage, queue, logger, cfg)
+	imageHandler := handlers.NewImageHandler(processor, storage, logger, cfg)
 
 	router := routes.NewRouter(imageHandler, logger)
 
@@ -58,24 +49,6 @@ func main() {
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,
 		Handler:      router.SetupRoutes(),
-	}
-
-	var wg sync.WaitGroup
-	if queue != nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		// Start multiple workers
-		numWorkers := 3
-		for i := 0; i < numWorkers; i++ {
-			wg.Add(1)
-			go func(workerID int) {
-				defer wg.Done()
-				if err := queue.StartWorker(ctx, workerID); err != nil {
-					logger.Error("Worker failed", zap.Int("worker_id", workerID), zap.Error(err))
-				}
-			}(i)
-		}
 	}
 
 	// Start server

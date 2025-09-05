@@ -17,8 +17,8 @@ services:
     depends_on:
       redis:
         condition: service_started
-      rabbitmq:
-        condition: service_healthy
+      # rabbitmq:
+      #   condition: service_healthy
     volumes:
       - ./uploads:/root/uploads
     restart: unless-stopped
@@ -38,30 +38,30 @@ services:
     command: redis-server --appendonly yes
 
   # RabbitMQ for job queue
-  rabbitmq:
-    image: rabbitmq:3-management-alpine
-    ports:
-      - '5672:5672'
-      - '15672:15672' # Management UI
-    environment:
-      - RABBITMQ_DEFAULT_USER=guest
-      - RABBITMQ_DEFAULT_PASS=guest
-    volumes:
-      - rabbitmq_data:/var/lib/rabbitmq
-    restart: unless-stopped
-    networks:
-      - image-resize-network
-    healthcheck:
-      test: ['CMD', 'rabbitmq-diagnostics', 'ping']
-      interval: 10s
-      timeout: 5s
-      retries: 5
+  # rabbitmq:
+  #   image: rabbitmq:3-management-alpine
+  #   ports:
+  #     - '5672:5672'
+  #     - '15672:15672' # Management UI
+  #   environment:
+  #     - RABBITMQ_DEFAULT_USER=guest
+  #     - RABBITMQ_DEFAULT_PASS=guest
+  #   volumes:
+  #     - rabbitmq_data:/var/lib/rabbitmq
+  #   restart: unless-stopped
+  #   networks:
+  #     - image-resize-network
+  #   healthcheck:
+  #     test: ['CMD', 'rabbitmq-diagnostics', 'ping']
+  #     interval: 10s
+  #     timeout: 5s
+  #     retries: 5
 
 volumes:
   redis_data:
     driver: local
-  rabbitmq_data:
-    driver: local
+  # rabbitmq_data:
+  #   driver: local
 
 networks:
   image-resize-network:
