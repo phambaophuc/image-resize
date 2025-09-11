@@ -21,7 +21,6 @@ A high-performance, production-ready Go API for image processing with resize, cr
 
 - Go 1.21+
 - Redis (for caching)
-- RabbitMQ (for queue processing)
 - Supabase (for cloud storage)
 
 ### Installation
@@ -129,7 +128,6 @@ GET /stats
 | `SUPABASE_KEY` | Supabase secret key | - |
 | `SUPABASE_BUCKET` | Supabase bucket name | - |
 | `REDIS_ADDR` | Redis address | `localhost:6379` |
-| `RABBITMQ_URL` | RabbitMQ connection URL | `amqp://guest:guest@localhost:5672/` |
 | `MAX_FILE_SIZE` | Maximum file size in bytes | `10485760` (10MB) |
 | `CACHE_DURATION` | Cache duration | `24h` |
 
@@ -142,17 +140,10 @@ GET /stats
 
 ### Benchmarks
 
-- **Single image resize (1920x1080 → 800x600)**: ~50ms
-- **Batch processing (10 images)**: ~200ms with 5 workers
+- **Single image resize (1920x1080 → 800x600)**: ~100ms
+- **Batch processing (10 images)**: ~400ms with 5 workers
 - **Cache hit response**: ~5ms
 - **Memory usage**: ~20MB baseline + ~2MB per concurrent request
-
-### Scaling
-
-- **Horizontal**: Multiple API instances behind load balancer
-- **Vertical**: Increase worker count for queue processing
-- **Caching**: Redis cluster for distributed caching
-- **Storage**: Supabase for unlimited storage capacity
 
 ## 🔒 Security Features
 
@@ -177,7 +168,6 @@ curl http://localhost:8080/api/v1/stats
 The Docker container includes automatic health checks that monitor:
 - API responsiveness
 - Redis connectivity (if configured)
-- RabbitMQ connectivity (if configured)
 
 ## 📈 Production Deployment
 
@@ -192,9 +182,5 @@ export LOG_LEVEL=debug
 export GIN_MODE=release
 export LOG_LEVEL=info
 ```
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ⭐ **Star this repo if it helped you build something awesome!** ⭐
