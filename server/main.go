@@ -17,20 +17,17 @@ import (
 )
 
 func main() {
-	// Initialize logger
 	logger, err := zap.NewProduction()
 	if err != nil {
 		log.Fatal("Failed to initialize logger:", err)
 	}
 	defer logger.Sync()
 
-	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Fatal("Failed to load configuration", zap.Error(err))
 	}
 
-	// Initialize services
 	processor := services.NewImageProcessor()
 
 	storage, err := services.NewStorageService(cfg)
@@ -38,12 +35,9 @@ func main() {
 		logger.Fatal("Failed to initialize storage service", zap.Error(err))
 	}
 
-	// Initialize handlers
 	imageHandler := handlers.NewImageHandler(processor, storage, logger, cfg)
-
 	router := routes.NewRouter(imageHandler, logger)
 
-	// Create HTTP server
 	server := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
 		ReadTimeout:  cfg.Server.ReadTimeout,

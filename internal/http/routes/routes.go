@@ -25,14 +25,12 @@ func NewRouter(
 }
 
 func (r *Router) SetupRoutes() *gin.Engine {
-	// Setup Gin router
 	if gin.Mode() == gin.ReleaseMode {
 		gin.SetMode(gin.ReleaseMode)
 	}
 
 	router := gin.New()
 
-	// Global middleware
 	router.Use(middleware.Logger(r.logger))
 	router.Use(middleware.ErrorHandler(r.logger))
 	router.Use(middleware.CORS())
@@ -41,20 +39,13 @@ func (r *Router) SetupRoutes() *gin.Engine {
 	// API version 1
 	v1 := router.Group("/api/v1")
 	{
-		// Health and monitoring
 		v1.GET("/health", r.imageHandler.HealthCheck)
-		v1.GET("/stats", r.imageHandler.GetStats)
+		// v1.GET("/stats", r.imageHandler.GetStats)
 
-		// Image processing endpoints
 		images := v1.Group("/images")
 		{
-			// Single image resize
 			images.POST("/resize", r.imageHandler.ResizeImage)
-
-			// Batch processing
 			images.POST("/batch/resize", r.imageHandler.BatchResize)
-
-			// Advanced processing
 			images.POST("/process", r.imageHandler.AdvancedProcess)
 		}
 	}

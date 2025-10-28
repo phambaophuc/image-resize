@@ -41,7 +41,6 @@ func NewImageHandler(
 
 // === MAIN API ENDPOINTS ===
 
-// ResizeImage handles single image resize
 func (h *ImageHandler) ResizeImage(c *gin.Context) {
 	file, header, err := h.getUploadedFile(c, imageParamKey)
 	if err != nil {
@@ -59,7 +58,6 @@ func (h *ImageHandler) ResizeImage(c *gin.Context) {
 	h.processAndRespond(c, file, header, req)
 }
 
-// AdvancedProcess handles advanced image processing
 func (h *ImageHandler) AdvancedProcess(c *gin.Context) {
 	file, header, err := h.getUploadedFile(c, imageParamKey)
 	if err != nil {
@@ -77,7 +75,6 @@ func (h *ImageHandler) AdvancedProcess(c *gin.Context) {
 	h.processAndRespond(c, file, header, req)
 }
 
-// BatchResize handles batch image resize
 func (h *ImageHandler) BatchResize(c *gin.Context) {
 	files, err := h.parseMultipartFiles(c)
 	if err != nil {
@@ -107,7 +104,7 @@ func (h *ImageHandler) BatchResize(c *gin.Context) {
 	})
 }
 
-// HealthCheck returns service health status
+// HealthCheck
 func (h *ImageHandler) HealthCheck(c *gin.Context) {
 	storageStatus := h.storage.HealthCheck(c.Request.Context())
 	overall := h.calculateOverallHealth(storageStatus)
@@ -127,20 +124,19 @@ func (h *ImageHandler) HealthCheck(c *gin.Context) {
 	})
 }
 
-// GetStats returns API statistics
-func (h *ImageHandler) GetStats(c *gin.Context) {
-	cacheStats, err := h.storage.GetCacheStats(c.Request.Context())
-	if err != nil {
-		h.logger.Error("Failed to get cache stats", zap.Error(err))
-	}
+// func (h *ImageHandler) GetStats(c *gin.Context) {
+// 	cacheStats, err := h.storage.GetCacheStats(c.Request.Context())
+// 	if err != nil {
+// 		h.logger.Error("Failed to get cache stats", zap.Error(err))
+// 	}
 
-	stats := map[string]interface{}{
-		"cache":     cacheStats,
-		"timestamp": time.Now(),
-	}
+// 	stats := map[string]interface{}{
+// 		"cache":     cacheStats,
+// 		"timestamp": time.Now(),
+// 	}
 
-	c.JSON(http.StatusOK, models.APIResponse{
-		Success: true,
-		Data:    stats,
-	})
-}
+// 	c.JSON(http.StatusOK, models.APIResponse{
+// 		Success: true,
+// 		Data:    stats,
+// 	})
+// }

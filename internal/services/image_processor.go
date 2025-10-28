@@ -34,24 +34,18 @@ func NewImageProcessor() *ImageProcessor {
 
 // ProcessImage handles single image processing with all operations
 func (p *ImageProcessor) ProcessImage(file multipart.File, request *models.AdvancedProcessingRequest) (*bytes.Buffer, string, error) {
-	// Validate image first
 	if err := p.ValidateImage(file, MaxFileSize); err != nil {
 		return nil, "", err
 	}
 
-	// Decode image
 	img, format, err := image.Decode(file)
 	if err != nil {
 		return nil, "", fmt.Errorf("failed to decode image: %w", err)
 	}
 
-	// Apply all transformations in sequence
 	processedImg := p.applyTransformations(img, request)
-
-	// Determine output format
 	outputFormat := p.getOutputFormat(format, request)
 
-	// Encode and return
 	buffer := &bytes.Buffer{}
 	if err := p.encodeImage(buffer, processedImg, outputFormat, p.getQuality(request)); err != nil {
 		return nil, "", fmt.Errorf("failed to encode image: %w", err)
@@ -65,7 +59,6 @@ func (p *ImageProcessor) BatchResize(files []multipart.File, req *models.Advance
 	results := make([]models.BatchImage, len(files))
 	jobs := make(chan int, len(files))
 
-	// Determine optimal worker count
 	numWorkers := DefaultWorkers
 	if len(files) < numWorkers {
 		numWorkers = len(files)
@@ -73,7 +66,6 @@ func (p *ImageProcessor) BatchResize(files []multipart.File, req *models.Advance
 
 	var wg sync.WaitGroup
 
-	// Start workers
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func() {
@@ -84,7 +76,6 @@ func (p *ImageProcessor) BatchResize(files []multipart.File, req *models.Advance
 		}()
 	}
 
-	// Queue jobs
 	for i := range files {
 		jobs <- i
 	}
@@ -96,12 +87,10 @@ func (p *ImageProcessor) BatchResize(files []multipart.File, req *models.Advance
 
 // validateImage validates file size and format
 func (p *ImageProcessor) ValidateImage(file multipart.File, maxSize int64) error {
-	// Check file size
 	if size := p.getFileSize(file); size > maxSize {
 		return fmt.Errorf("file size %d exceeds maximum allowed size %d", size, maxSize)
 	}
 
-	// Validate image format
 	if _, _, err := image.Decode(file); err != nil {
 		return fmt.Errorf("invalid image format: %w", err)
 	}
@@ -114,17 +103,14 @@ func (p *ImageProcessor) ValidateImage(file multipart.File, maxSize int64) error
 func (p *ImageProcessor) applyTransformations(img image.Image, request *models.AdvancedProcessingRequest) image.Image {
 	result := img
 
-	// Apply crop first (order matters)
 	if request.Crop != nil {
 		result = p.cropImage(result, request.Crop)
 	}
 
-	// Then resize
 	if request.Resize != nil {
 		result = p.resizeImage(result, request.Resize)
 	}
 
-	// Finally watermark
 	if request.Watermark != nil {
 		result = p.addWatermark(result, request.Watermark)
 	}
@@ -148,7 +134,6 @@ func (p *ImageProcessor) cropImage(img image.Image, req *models.CropRequest) ima
 
 // resizeImage resizes the image using Lanczos resampling
 func (p *ImageProcessor) resizeImage(img image.Image, req *models.ResizeRequest) image.Image {
-	// Validate dimensions
 	width := max(1, req.Width)
 	height := max(1, req.Height)
 
@@ -184,7 +169,7 @@ func (p *ImageProcessor) drawTextWatermark(img *image.RGBA, req *models.Watermar
 
 	pos, exists := positions[req.Position]
 	if !exists {
-		pos = positions["bottom-right"] // Default position
+		pos = positions["bottom-right"]
 	}
 
 	// Draw text
@@ -208,7 +193,6 @@ func (p *ImageProcessor) encodeImage(w io.Writer, img image.Image, format string
 	case "png":
 		return png.Encode(w, img)
 	case "webp":
-		// For now, fallback to PNG (WebP support would require additional dependency)
 		return png.Encode(w, img)
 	default:
 		return jpeg.Encode(w, img, &jpeg.Options{Quality: quality})
@@ -236,9 +220,9 @@ func (p *ImageProcessor) processImageJob(i int, files []multipart.File, req *mod
 }
 
 func (p *ImageProcessor) getFileSize(file multipart.File) int64 {
-	current, _ := file.Seek(0, 1) // Get current position
-	size, _ := file.Seek(0, 2)    // Seek to end to get size
-	file.Seek(current, 0)         // Restore original position
+	current, _ := file.Seek(0, 1)
+	size, _ := file.Seek(0, 2)
+	file.Seek(current, 0)
 	return size
 }
 

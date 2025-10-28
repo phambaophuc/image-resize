@@ -139,13 +139,6 @@ func (h *ImageHandler) respondError(c *gin.Context, statusCode int, message stri
 	})
 }
 
-func (h *ImageHandler) respondWithImage(c *gin.Context, data []byte, format string) {
-	contentType := "image/" + format
-	c.Header("Content-Type", contentType)
-	c.Header("Cache-Control", fmt.Sprintf("public, max-age=%d", maxCacheAge))
-	c.Data(http.StatusOK, contentType, data)
-}
-
 func (h *ImageHandler) respondWithURL(c *gin.Context, buffer *bytes.Buffer, header *multipart.FileHeader, format string, req *models.AdvancedProcessingRequest) {
 	imageURL := h.uploadToStorage(c.Request.Context(), buffer, header, format)
 
@@ -170,20 +163,23 @@ func (h *ImageHandler) respondWithURL(c *gin.Context, buffer *bytes.Buffer, head
 // === PROCESSING LOGIC ===
 
 func (h *ImageHandler) processAndRespond(c *gin.Context, file multipart.File, header *multipart.FileHeader, req *models.AdvancedProcessingRequest) {
-	// Validate image
 	if err := h.processor.ValidateImage(file, h.config.Storage.MaxFileSize); err != nil {
 		h.respondError(c, http.StatusBadRequest, fmt.Sprintf("Invalid image: %v", err))
 		return
 	}
 
-	// Try cache first
-	cacheKey := h.storage.GenerateCacheKey(header.Filename, req)
-	if cachedData, found := h.tryGetFromCache(c.Request.Context(), cacheKey); found {
-		h.respondWithImage(c, cachedData, req.Resize.Format)
+	// cacheKey := h.storage.GenerateCacheKey(header.Filename, req)
+	// if cachedData, found := h.tryGetFromCache(c.Request.Context(), cacheKey); found {
+	// 	h.respondWithImage(c, cachedData, req.Resize.Format)
+	// 	return
+	// }
+
+	if _, err := file.Seek(0, 0); err != nil {
+		h.logger.Error("Failed to reset file pointer", zap.Error(err))
+		h.respondError(c, http.StatusInternalServerError, "Internal file error")
 		return
 	}
 
-	// Process image
 	buffer, format, err := h.processor.ProcessImage(file, req)
 	if err != nil {
 		h.logger.Error("Processing failed", zap.Error(err))
@@ -192,14 +188,9 @@ func (h *ImageHandler) processAndRespond(c *gin.Context, file multipart.File, he
 	}
 
 	// Cache the result
-	h.setCacheData(c.Request.Context(), cacheKey, buffer.Bytes())
+	// h.setCacheData(c.Request.Context(), cacheKey, buffer.Bytes())
 
-	// Respond based on request type
-	if c.Query("return_url") == "true" {
-		h.respondWithURL(c, buffer, header, format, req)
-	} else {
-		h.respondWithImage(c, buffer.Bytes(), format)
-	}
+	h.respondWithURL(c, buffer, header, format, req)
 }
 
 // === UTILITY METHODS ===
@@ -254,18 +245,18 @@ func (h *ImageHandler) uploadToStorage(ctx context.Context, buffer *bytes.Buffer
 	return url
 }
 
-func (h *ImageHandler) tryGetFromCache(ctx context.Context, cacheKey string) ([]byte, bool) {
-	cachedData, err := h.storage.GetFromCache(ctx, cacheKey)
-	if err != nil || cachedData == nil {
-		return nil, false
-	}
+// func (h *ImageHandler) tryGetFromCache(ctx context.Context, cacheKey string) ([]byte, bool) {
+// 	cachedData, err := h.storage.GetFromCache(ctx, cacheKey)
+// 	if err != nil || cachedData == nil {
+// 		return nil, false
+// 	}
 
-	h.logger.Info("Cache hit", zap.String("cache_key", cacheKey))
-	return cachedData, true
-}
+// 	h.logger.Info("Cache hit", zap.String("cache_key", cacheKey))
+// 	return cachedData, true
+// }
 
-func (h *ImageHandler) setCacheData(ctx context.Context, cacheKey string, data []byte) {
-	if err := h.storage.SetCache(ctx, cacheKey, data); err != nil {
-		h.logger.Warn("Failed to cache data", zap.String("cache_key", cacheKey), zap.Error(err))
-	}
-}
+// func (h *ImageHandler) setCacheData(ctx context.Context, cacheKey string, data []byte) {
+// 	if err := h.storage.SetCache(ctx, cacheKey, data); err != nil {
+// 		h.logger.Warn("Failed to cache data", zap.String("cache_key", cacheKey), zap.Error(err))
+// 	}
+// }
