@@ -119,10 +119,6 @@ func (s *StorageService) GenerateCacheKey(originalFilename string, request *mode
 			request.Watermark.Text, request.Watermark.Position, request.Watermark.Opacity))
 	}
 
-	if request.Compress {
-		keyParts = append(keyParts, "compress")
-	}
-
 	combined := strings.Join(keyParts, "_")
 
 	hash := sha256.Sum256([]byte(combined))

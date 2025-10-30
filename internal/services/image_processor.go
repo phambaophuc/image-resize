@@ -33,14 +33,17 @@ func NewImageProcessor() *ImageProcessor {
 }
 
 // ProcessImage handles single image processing with all operations
-func (p *ImageProcessor) ProcessImage(file multipart.File, request *models.AdvancedProcessingRequest) (*bytes.Buffer, string, error) {
+func (p *ImageProcessor) ProcessImage(
+	file multipart.File,
+	request *models.AdvancedProcessingRequest,
+) (*bytes.Buffer, string, image.Image, error) {
 	if err := p.ValidateImage(file, MaxFileSize); err != nil {
-		return nil, "", err
+		return nil, "", nil, err
 	}
 
 	img, format, err := image.Decode(file)
 	if err != nil {
-		return nil, "", fmt.Errorf("failed to decode image: %w", err)
+		return nil, "", nil, fmt.Errorf("failed to decode image: %w", err)
 	}
 
 	processedImg := p.applyTransformations(img, request)
@@ -48,10 +51,10 @@ func (p *ImageProcessor) ProcessImage(file multipart.File, request *models.Advan
 
 	buffer := &bytes.Buffer{}
 	if err := p.encodeImage(buffer, processedImg, outputFormat, p.getQuality(request)); err != nil {
-		return nil, "", fmt.Errorf("failed to encode image: %w", err)
+		return nil, "", nil, fmt.Errorf("failed to encode image: %w", err)
 	}
 
-	return buffer, outputFormat, nil
+	return buffer, outputFormat, processedImg, nil
 }
 
 // BatchResize processes multiple images concurrently
@@ -205,7 +208,7 @@ func (p *ImageProcessor) processImageJob(i int, files []multipart.File, req *mod
 		return
 	}
 
-	buffer, _, err := p.ProcessImage(files[i], req)
+	buffer, _, _, err := p.ProcessImage(files[i], req)
 	if err != nil {
 		results[i] = models.BatchImage{
 			Error: fmt.Sprintf("failed to process image %d: %v", i, err),

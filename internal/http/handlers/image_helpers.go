@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
 	"mime/multipart"
 	"net/http"
 	"path/filepath"
@@ -139,8 +140,33 @@ func (h *ImageHandler) respondError(c *gin.Context, statusCode int, message stri
 	})
 }
 
-func (h *ImageHandler) respondWithURL(c *gin.Context, buffer *bytes.Buffer, header *multipart.FileHeader, format string, req *models.AdvancedProcessingRequest) {
+func (h *ImageHandler) respondWithURL(
+	c *gin.Context,
+	buffer *bytes.Buffer,
+	header *multipart.FileHeader,
+	format string,
+	req *models.AdvancedProcessingRequest,
+	img image.Image,
+) {
 	imageURL := h.uploadToStorage(c.Request.Context(), buffer, header, format)
+
+	bounds := img.Bounds()
+	width := bounds.Dx()
+	height := bounds.Dy()
+
+	size := models.ResizeSize{
+		Width:   width,
+		Height:  height,
+		Quality: 0,
+		Format:  format,
+	}
+
+	if req != nil && req.Resize != nil {
+		size.Width = req.Resize.Width
+		size.Height = req.Resize.Height
+		size.Quality = req.Resize.Quality
+		size.Format = req.Resize.Format
+	}
 
 	c.JSON(http.StatusOK, models.APIResponse{
 		Success: true,
@@ -150,12 +176,7 @@ func (h *ImageHandler) respondWithURL(c *gin.Context, buffer *bytes.Buffer, head
 			URL:         imageURL,
 			FileSize:    int64(buffer.Len()),
 			ProcessedAt: time.Now(),
-			Size: models.ResizeSize{
-				Width:   req.Resize.Width,
-				Height:  req.Resize.Height,
-				Quality: req.Resize.Quality,
-				Format:  format,
-			},
+			Size:        size,
 		},
 	})
 }
@@ -180,7 +201,7 @@ func (h *ImageHandler) processAndRespond(c *gin.Context, file multipart.File, he
 		return
 	}
 
-	buffer, format, err := h.processor.ProcessImage(file, req)
+	buffer, format, processedImg, err := h.processor.ProcessImage(file, req)
 	if err != nil {
 		h.logger.Error("Processing failed", zap.Error(err))
 		h.respondError(c, http.StatusInternalServerError, "Failed to process image")
@@ -190,7 +211,7 @@ func (h *ImageHandler) processAndRespond(c *gin.Context, file multipart.File, he
 	// Cache the result
 	// h.setCacheData(c.Request.Context(), cacheKey, buffer.Bytes())
 
-	h.respondWithURL(c, buffer, header, format, req)
+	h.respondWithURL(c, buffer, header, format, req, processedImg)
 }
 
 // === UTILITY METHODS ===
